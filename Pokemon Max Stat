@@ -1,0 +1,148 @@
+#Packages
+library(tidyverse)
+library(ggimage)
+library(ggpath)
+library(showtext)
+
+# Load Data
+pokemon_df <- readr::read_csv(
+  'https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-04-01/pokemon_df.csv'
+)
+
+# Fix Icon URLs
+pokemon_df <- pokemon_df %>%
+  mutate(icon_new = if_else(
+    startsWith(url_icon, "//"),
+    paste0("https:", url_icon),
+    url_icon
+  ))
+
+# Font
+font_add_google("bricolage grotesque", family = "special")
+showtext_auto()
+showtext_opts(dpi = 300)
+
+#Type Colours
+type_colors <- tribble(
+  ~type,      ~color,
+  "normal",   "#A8A77A",
+  "fire",     "#EE8130",
+  "water",    "#6390F0",
+  "electric", "#F7D02C",
+  "grass",    "#7AC74C",
+  "ice",      "#96D9D6",
+  "fighting", "#C22E28",
+  "poison",   "#A33EA1",
+  "ground",   "#E2BF65",
+  "flying",   "#A98FF3",
+  "psychic",  "#F95587",
+  "bug",      "#A6B91A",
+  "rock",     "#B6A136",
+  "ghost",    "#735797",
+  "dragon",   "#6F35FC",
+  "dark",     "#705746",
+  "steel",    "#B7B7CE",
+  "fairy",    "#D685AD"
+) %>%
+  arrange(type)
+
+#Summarise Max Stats per Type
+pokemon_stats <- pokemon_df %>%
+  group_by(type_1) %>%
+  summarise(
+    hp    = max(hp),
+    atk   = max(attack),
+    def   = max(defense),
+    spatk = max(special_attack),
+    spdef = max(special_defense),
+    spd   = max(speed)
+  )
+
+# Pivot to long format
+lpokemon_stats <- pokemon_stats %>%
+  pivot_longer(-type_1, names_to = "stat", values_to = "value")
+
+# Flag the highest stat per type (used for bar outline)
+lpokemon_stats <- lpokemon_stats %>%
+  group_by(type_1) %>%
+  mutate(max_col = value == max(value)) %>%
+  ungroup()
+
+# Find Which Stat is Max per Type
+max_min_stats <- lpokemon_stats %>%
+  group_by(type_1) %>%
+  reframe(
+    max  = max(value),
+    min  = min(value),
+    stat = stat[which(value == max)]
+  ) %>%
+  mutate(max_col = "max")
+
+##Pokémon with Highest Value per Type/Stat 
+poke_long <- pokemon_df %>%
+  drop_na(url_icon) %>%
+  select(pokemon, type_1, hp, attack, defense,
+         special_attack, special_defense, speed, icon_new) %>%
+  rename(
+    atk   = attack,
+    def   = defense,
+    spatk = special_attack,
+    spdef = special_defense,
+    spd   = speed
+  ) %>%
+  pivot_longer(-c(pokemon, type_1, icon_new), names_to = "stat")
+
+## Select only the type/stat combinations that are the max
+stat_select <- max_min_stats %>%
+  select(type_1, stat)
+
+## Join to find which Pokémon holds each type's max stat
+poke_max_stat <- left_join(stat_select,
+                           poke_long %>% select(-icon_new),
+                           by = c("type_1", "stat")) %>%
+  group_by(type_1, stat) %>%
+  slice_max(value, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  left_join(pokemon_df %>% select(pokemon, icon_new), by = "pokemon") %>%
+  mutate(y = 150)
+
+##Plot
+max_plot <- ggplot(lpokemon_stats) +
+  geom_col(
+    aes(x = stat, y = value, fill = type_1, color = max_col),
+    linewidth = 1
+  ) +
+  geom_from_path(
+    data = poke_max_stat,
+    aes(x = stat, y = 0, path = icon_new),
+    width = 0.3
+  ) +
+  geom_text(
+    data = poke_max_stat,
+    aes(x = stat, y = y, label = value),
+    size  = 1.5,
+    vjust = -0.02) +
+  scale_fill_manual(values = type_colors$color) +
+  scale_color_manual(
+    values   = c("TRUE" = "black", "FALSE" = NA),
+    na.value = "transparent") +
+  coord_polar() +
+  labs(
+    y        = "Max Stat Value",
+    title    = "Pokémon max stat distributions by primary type",
+    subtitle = "Max base stat values by primary type. Outlined slice = highest max stat. Icon = Pokémon with that stat's highest value.") +
+  facet_wrap(~ type_1, ncol = 6) +
+  theme_bw() +
+  theme(
+    legend.position  = "none",
+    strip.background = element_rect(fill = "transparent"),
+    axis.title.x     = element_blank(),
+    axis.title.y     = element_text(size = 4, margin = margin(r = 10)),
+    text             = element_text(family = "special", size = 4),
+    axis.text.x      = element_text(vjust = -1, size = 2),
+    plot.title       = element_text(size = 10),
+    plot.subtitle    = element_text(size = 4, lineheight = 0.6),
+    strip.text       = element_text(size = 6),
+    plot.margin      = margin(t = 15, r = 10, b = 10, l = 10))
+
+max_plot
