@@ -1,0 +1,94 @@
+###LOAD
+install.packages("fmsb")
+
+# Load data directly from GitHub
+pokemon_df <- readr::read_csv(
+  'https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-04-01/pokemon_df.csv'
+)
+## font
+font.add.google("bricolage grotesque", family "special")
+showtext_auto()
+showtext_opts(dpi = 300)
+
+## get rid of NA
+pokemon_df <- pokemon_df %>%
+  filter(!is.na(generation_id))
+## # Check URL format, then add https: only if needed
+pokemon_df <- pokemon_df %>%
+  mutate(icon_new = if_else(
+    startsWith(url_icon, "//"),
+    paste0("https:", url_icon),
+    url_icon
+  ))
+
+## group by generation
+hp_by_gen <- pokemon_df %>%
+group_by(generation_id)%>%
+  slice_max (hp, n=3, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(generation_id, pokemon, hp)
+
+## Fixing name
+hp_by_gen <- hp_by_gen %>%
+  mutate(pokemon = case_when (
+    pokemon == "giratina-altered"~ "giratina",
+    TRUE ~ pokemon
+  ))
+
+## troubleshooting
+hp_by_gen <- pokemon_df %>%
+  filter(!is.na(generation_id)) %>%
+  group_by(generation_id) %>%
+  slice_max(hp, n = 3, with_ties = FALSE) %>%
+  ungroup() %>%
+  arrange(generation_id, desc(hp)) %>%
+  group_by(generation_id) %>%
+  mutate(rank = row_number()) %>%  # <- create rank after ungrouping and re-grouping
+  ungroup() %>%
+  select(generation_id, pokemon, hp, rank, icon_new)
+
+## FIXING URLS
+
+hp_by_gen <- hp_by_gen %>%
+  mutate(icon_new = case_when(
+    pokemon == "guzzlord" ~ "https://img.pokemondb.net/sprites/sword-shield/icon/guzzlord.png",
+    pokemon == "solgaleo" ~ "https://img.pokemondb.net/sprites/sword-shield/icon/solgaleo.png",
+    pokemon == "lunala" ~ "https://img.pokemondb.net/sprites/sword-shield/icon/lunala.png",
+    TRUE ~ icon_new
+  ))
+
+##heat map
+
+hp_heat <- ggplot(hp_by_gen, aes(x = generation_id, y = rank, fill = hp)) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_from_path(aes(path = icon_new), width = 0.08) +
+  geom_text(aes(label = pokemon),
+            size = 1.8, color = "white", fontface = "bold",
+            vjust = -3.5) +
+  geom_text(aes(label = hp),
+            size = 1.8, color = "white", fontface = "bold",
+            vjust = 5) +
+  scale_fill_gradient(low = "#a8d8a8", high = "#1a5c1a") +
+  scale_x_continuous(breaks = 1:7, labels = paste0("Gen ", 1:7)) +
+  scale_y_reverse(breaks = 1:3, labels = c("1st", "2nd", "3rd")) +
+  labs(
+    title = "Highest Base HP Pokémon by Generation",
+    fill  = "Base HP",
+    x     = "Generation",
+    y     = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    text             = element_text(family = "special"),
+    plot.title       = element_text(size = 14, hjust = 0.5),
+    axis.text        = element_text(size = 8),
+    axis.text.y      = element_text(size = 8, face = "bold"),
+    legend.position  = "bottom",
+    legend.key.width = unit(2, "cm"),
+    legend.title     = element_text(size = 8),
+    legend.text      = element_text(size = 7),
+    panel.grid       = element_blank(),
+    plot.margin      = margin(t = 10, r = 10, b = 10, l = 10)
+  )
+
+hp_heat
